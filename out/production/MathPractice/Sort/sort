@@ -1,0 +1,386 @@
+排序
+1.      稳定性  原地排序  最好/平均/最坏
+  冒泡   是        是   O(n)  /O(n^2)/O(n^2)
+  插入   是        是   O(n)  /O(n^2)/O(n^2)
+  选择   是        是   O(n^2)/O(n^2)/O(n^2)
+
+2.快排、归并         O(Nlogn)
+3.桶排序、基数       O(n)
+
+排序的稳定性：相等数据的顺序没有发生变化。
+原地排序：特指空间复杂度为O(1)的排序算法。
+
+有序度：a[i] <= a[j] if a<j;
+逆序度：a[i] > a[j] if a<j;
+有序数组为满有序度n*(n-1)/2;
+
+建站不止于增删改查，还有很多很有魅力的地方。对于通信聊天这块已经青睐好久了，前段时间在做的j2ee项目运用到Spring+SpringMVC+MyBatis的框架集合，是关于一个社交平台的网站，类似于facebook，twitter，微博等。在做完基本的CURD（例如评论模块）后，开始研究网站通信并应用于项目中。
+
+提到通信，大家都知道Socket。确实，运用Socket能在服务器与客户端之间建立一个数据交换的通道。之前用java SE写过的Socket通信 —模拟用户登录简单地实现了服务器与客户端传送消息。但是再细想一下，如果要在项目中实现网页聊天功能，把Socket用到j2ee项目中，或许就没那么简单了。这时转向baidu与google寻找答案，原来，有WebSocket这套协议，关于WebSocket，来自IBM这两篇文章已经介绍地很详细了：WebSocket 实战，使用 HTML5 WebSocket 构建实时 Web 应用。
+
+Spring Framework 4 includes a new spring-websocket module with comprehensive WebSocket support. It is compatible with the Java WebSocket API standard (JSR-356) and also provides additional value-add as explained in the rest of the introduction.来自Spring官方文档：http://docs.spring.io/spring/docs/current/spring-framework-reference/html/websocket.html
+
+非常庆幸的是，在Spring 4.0以上开始支持WebSocket了，并给出一套API供开发者使用。
+
+下面就开始讲解WebSocket如何应用于SSM框架，说明其中的工作原理，并在最后给出网页聊天效果图。
+
+一：客户端（js）新建WebSocket对象，指定要进行握手连接的服务器地址：
+
+var webSocket = new WebSocket("ws://"+socketPath+"/ws");
+webSocket.onopen = function(event){
+    console.log("连接成功");
+    console.log(event);
+};
+webSocket.onerror = function(event){
+    console.log("连接失败");
+    console.log(event);
+};
+webSocket.onclose = function(event){
+    console.log("Socket连接断开");
+    console.log(event);
+};
+webSocket.onmessage = function(event){
+    //接受来自服务器的消息
+    //...
+}
+
+讲解：
+
+在新建WebSocket对象时，给出的参数字符串中ws表明协议使用的是WebSocket协议，socketPath就是要连接的服务器地址，在下文会进一步说明。
+如果成功连接，就会执行onopen；如果连接失败，就会执行onerror；如果连接断开，就会执行onclose，如果服务器有消息发送过来，就会执行onmessage。
+二：服务端导入Spring WebSocket相关jar依赖：
+
+<!--WebSocket 依赖 -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-messaging</artifactId>
+      <version>4.0.5.RELEASE</version>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-websocket</artifactId>
+      <version>4.0.5.RELEASE</version>
+    </dependency>
+    <dependency>
+      <groupId>com.google.code.gson</groupId>
+      <artifactId>gson</artifactId>
+      <version>2.3.1</version>
+    </dependency>
+
+讲解：
+
+关于SpringMVC，Mybatis的jar包依赖就不列出来了。本文重点为如何在SSM框架上应用WebSocket。
+三：服务器添加WebSocket服务：
+
+package web.webSocket;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurerAdapter;
+import org.springframework.web.socket.config.annotation.EnableWebSocket;
+import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
+import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
+
+/**
+ * Component注解告诉SpringMVC该类是一个SpringIOC容器下管理的类
+ * 其实@Controller, @Service, @Repository是@Component的细化
+ */
+@Component
+@EnableWebSocket
+public class MyWebSocketConfig extends WebMvcConfigurerAdapter implements WebSocketConfigurer {
+
+    @Autowired
+    MyWebSocketHandler handler;
+
+    public void registerWebSocketHandlers(WebSocketHandlerRegistry webSocketHandlerRegistry) {
+
+        //添加websocket处理器，添加握手拦截器
+        webSocketHandlerRegistry.addHandler(handler, "/ws").addInterceptors(new MyHandShakeInterceptor());
+
+        //添加websocket处理器，添加握手拦截器
+        webSocketHandlerRegistry.addHandler(handler, "/ws/sockjs").addInterceptors(new MyHandShakeInterceptor()).withSockJS();
+    }
+}
+
+讲解：
+
+首先说说上文提到的客户端指定握手连接的服务器地址：在jsp中定义socketPath为 String socketPath = request.getServerName()+”:”+request.getServerPort()+path+”/”;其中path的定义为 String path = request.getContextPath();相信做SSM项目的你们都很清楚了。getServerName()先得到服务器机的ip地址；getServerPort()得到相应的端口号；getContextPath()得到的是上下文路径，其实就是发布了的项目文件夹的文件名，我发布了的项目文件夹名为web，在这个文件夹下有META-INF，WEB-INF和一个默认的index.jsp，WEB-INF内的页面是不允许外界访问的，所以当我们要访问里面的jsp页面时唯一的方法就是通过springMVC的映射，不是吗？最后我把项目发布到远程服务器上并通过外网进行测试连接到的路径为： “ws://139.129.47.176:8089/web//ws”
+我在139.129.47.176:8089/web/后面加上一些事先规定好的映射匹配字符就能访问页面。因此我总结的就是：139.129.47.176:8089/web/就能得到我Tomcat容器下的SpringIOC容器，里面都是我写好的controller，service接口对象。
+注意到上面代码中有@Component注解，已经给出注释了，就是相当于告诉SpringMVC这是SpringIOC容器下管理的类，和@Controller注解其实是一样的，通过139.129.47.176:8089/web/能访问到Controller并做映射，通过139.129.47.176:8089/web/同样可以访问MyWebSocketConfig这个类在SpringIOC下的对象，从而服务端进行WebSocket服务。
+写到这里，相信熟悉SSM运行流程的你们都应该懂WebSocket的路径了。
+在上面的代码中出现到MyWebSocketHandler handler;与new MyHandShakeInterceptor()。其中handler规定了服务端WebSocket的处理。而MyHandShakeInterceptor是客户端与服务端握手连接前后拦截器。
+四：握手拦截器MyHandShakeInterceptor：
+
+package web.webSocket;
+
+import entity.User;
+import org.springframework.http.server.ServerHttpRequest;
+import org.springframework.http.server.ServerHttpResponse;
+import org.springframework.http.server.ServletServerHttpRequest;
+import org.springframework.web.socket.WebSocketHandler;
+import org.springframework.web.socket.server.HandshakeInterceptor;
+
+import javax.servlet.http.HttpSession;
+import java.util.Map;
+
+/**
+ * websocket握手拦截器
+ * 拦截握手前，握手后的两个切面
+ */
+public class MyHandShakeInterceptor implements HandshakeInterceptor {
+
+    public boolean beforeHandshake(ServerHttpRequest serverHttpRequest, ServerHttpResponse serverHttpResponse, WebSocketHandler webSocketHandler, Map<String, Object> map) throws Exception {
+        System.out.println("Websocket:用户[ID:" + ((ServletServerHttpRequest) serverHttpRequest).getServletRequest().getSession(false).getAttribute("user") + "]已经建立连接");
+        if (serverHttpRequest instanceof ServletServerHttpRequest) {
+            ServletServerHttpRequest servletRequest = (ServletServerHttpRequest) serverHttpRequest;
+            HttpSession session = servletRequest.getServletRequest().getSession(false);
+            // 标记用户
+            User user = (User) session.getAttribute("user");
+            if(user!=null){
+                map.put("uid", user.getUserId());//为服务器创建WebSocketSession做准备
+                System.out.println("用户id："+user.getUserId()+" 被加入");
+            }else{
+                System.out.println("user为空");
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public void afterHandshake(ServerHttpRequest serverHttpRequest, ServerHttpResponse serverHttpResponse, WebSocketHandler webSocketHandler, Exception e) {
+
+    }
+}
+
+讲解：
+
+拦截的概念就是在一个操作前，与在这个操作后的两个时间切面将要进行的动作。
+客户端与服务端握手连接前将键名”uid“，值为用户id的这个键值对加入到指定参数map中。为服务器建立与相应客户端连接的WebSocketSession打下基础。
+五：MyWebSocketHandler，WebSocket处理器：
+
+package web.webSocket;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import org.springframework.web.socket.*;
+
+import java.io.IOException;
+import java.sql.Timestamp;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
+import entity.Message;
+import service.youandmeService;
+
+@Component
+public class MyWebSocketHandler implements WebSocketHandler{
+
+    @Autowired
+    private youandmeService youandmeService;
+
+    //当MyWebSocketHandler类被加载时就会创建该Map，随类而生
+    public static final Map<Integer, WebSocketSession> userSocketSessionMap;
+
+    static {
+        userSocketSessionMap = new HashMap<Integer, WebSocketSession>();
+    }
+
+    //握手实现连接后
+    public void afterConnectionEstablished(WebSocketSession webSocketSession) throws Exception {
+        int uid = (Integer) webSocketSession.getAttributes().get("uid");
+        if (userSocketSessionMap.get(uid) == null) {
+            userSocketSessionMap.put(uid, webSocketSession);
+        }
+    }
+
+    //发送信息前的处理
+    public void handleMessage(WebSocketSession webSocketSession, WebSocketMessage<?> webSocketMessage) throws Exception {
+
+        if(webSocketMessage.getPayloadLength()==0)return;
+
+        //得到Socket通道中的数据并转化为Message对象
+        Message msg=new Gson().fromJson(webSocketMessage.getPayload().toString(),Message.class);
+
+        Timestamp now = new Timestamp(System.currentTimeMillis());
+        msg.setMessageDate(now);
+        //将信息保存至数据库
+        youandmeService.addMessage(msg.getFromId(),msg.getFromName(),msg.getToId(),msg.getMessageText(),msg.getMessageDate());
+
+        //发送Socket信息
+        sendMessageToUser(msg.getToId(), new TextMessage(new GsonBuilder().setDateFormat("yyyy-MM-dd HH:mm:ss").create().toJson(msg)));
+    }
+
+    public void handleTransportError(WebSocketSession webSocketSession, Throwable throwable) throws Exception {
+
+    }
+
+    /**
+     * 在此刷新页面就相当于断开WebSocket连接,原本在静态变量userSocketSessionMap中的
+     * WebSocketSession会变成关闭状态(close)，但是刷新后的第二次连接服务器创建的
+     * 新WebSocketSession(open状态)又不会加入到userSocketSessionMap中,所以这样就无法发送消息
+     * 因此应当在关闭连接这个切面增加去除userSocketSessionMap中当前处于close状态的WebSocketSession，
+     * 让新创建的WebSocketSession(open状态)可以加入到userSocketSessionMap中
+     * @param webSocketSession
+     * @param closeStatus
+     * @throws Exception
+     */
+    public void afterConnectionClosed(WebSocketSession webSocketSession, CloseStatus closeStatus) throws Exception {
+
+        System.out.println("WebSocket:"+webSocketSession.getAttributes().get("uid")+"close connection");
+        Iterator<Map.Entry<Integer,WebSocketSession>> iterator = userSocketSessionMap.entrySet().iterator();
+        while(iterator.hasNext()){
+            Map.Entry<Integer,WebSocketSession> entry = iterator.next();
+            if(entry.getValue().getAttributes().get("uid")==webSocketSession.getAttributes().get("uid")){
+                userSocketSessionMap.remove(webSocketSession.getAttributes().get("uid"));
+                System.out.println("WebSocket in staticMap:" + webSocketSession.getAttributes().get("uid") + "removed");
+            }
+        }
+    }
+
+    public boolean supportsPartialMessages() {
+        return false;
+    }
+
+    //发送信息的实现
+    public void sendMessageToUser(int uid, TextMessage message)
+            throws IOException {
+        WebSocketSession session = userSocketSessionMap.get(uid);
+        if (session != null && session.isOpen()) {
+            session.sendMessage(message);
+        }
+    }
+}
+
+讲解：
+
+这个处理器的@Component注解就是告诉Spring将这个类的对象注入到IOC容器中，这样在MyWebSocketConfig中才可以通过@Autowired将其自动装载，进而使用。
+简单地说说这个处理器，握手实现连接后会执行afterConnectionEstablished()方法，这个方法就是将握手连接后为与客户端实现通信而建立的WebSocketSession加入到静态变量userSocketSessionMap中。
+当客户端断开连接后会执行afterConnectionClosed()，这时需要将与客户端对应的WebSocketSession从userSocketSessionMap中移除，原因已在注释中给出，简直血的教训，调试了好久才发现….
+客户端一有消息发送至服务器就会自动执行handleMessage()方法，其中Message msg=new Gson().fromJson(webSocketMessage.getPayload().toString(),Message.class);将JSON形式的数据解析成Message对象，Message的定义稍后给出。
+服务器发送信息至客户端只需要一句话，就是通过在服务器中WebSocketSession的sendMessage()方法，详情都在代码中。
+六：客户端发送信息与接受信息：
+
+发送：
+
+var data = {};//新建data对象，并规定属性名与相应的值
+            data['fromId'] = sendUid;
+            data['fromName'] = sendName;
+            data['toId'] = to;
+            data['messageText'] = $(".contactDivTrue_right_input").val();
+            webSocket.send(JSON.stringify(data));//将对象封装成JSON后发送至服务器
+接收：
+
+var message = JSON.parse(event.data);//将数据解析成JSON形式
+1
+讲解：
+
+发送信息时需要将对象转换为JSON形式的数据，因为服务器本来就是将JSON数据转换成对象的。
+客户端接收信息时将数据解析成JSON形式后就能在js中获取相应的数据。
+七：Message类：
+
+package entity;
+
+import java.sql.Timestamp;
+import java.util.Date;
+
+/**
+ * Created by Administrator on 2016/8/15.
+ */
+public class Message {
+
+    private int messageId;
+    private int fromId;
+    private String fromName;
+    private int toId;
+    private String messageText;
+    private Timestamp messageDate;
+
+    public Message() {
+    }
+
+    public int getMessageId() {
+        return messageId;
+    }
+
+    public void setMessageId(int messageId) {
+        this.messageId = messageId;
+    }
+
+    public int getFromId() {
+        return fromId;
+    }
+
+    public void setFromId(int fromId) {
+        this.fromId = fromId;
+    }
+
+    public String getFromName() {
+        return fromName;
+    }
+
+    public void setFromName(String fromName) {
+        this.fromName = fromName;
+    }
+
+    public int getToId() {
+        return toId;
+    }
+
+    public void setToId(int toId) {
+        this.toId = toId;
+    }
+
+    public String getMessageText() {
+        return messageText;
+    }
+
+    public void setMessageText(String messageText) {
+        this.messageText = messageText;
+    }
+
+    public Timestamp getMessageDate() {
+        return messageDate;
+    }
+
+    public void setMessageDate(Timestamp messageDate) {
+        this.messageDate = messageDate;
+    }
+
+    @Override
+    public String toString() {
+        return "Message{" +
+                "messageId=" + messageId +
+                ", fromId=" + fromId +
+                ", fromName='" + fromName + '\'' +
+                ", toId=" + toId +
+                ", messageText='" + messageText + '\'' +
+                ", messageDate=" + messageDate +
+                '}';
+    }
+}
+
+写到这里，如何在SSM中运用WebSocket基本已经讲完了，接下来就是实战了。这里没有给出具体github代码包。原因有二：
+
+具体代码是整个项目的代码，大家下载后在本地测试还涉及数据库等多方面问题，比较麻烦，只会增加大家的负担。
+程序员要注重自己实现，自己debug查错查问题，举一反三的能力。关于如何应用的步骤已经给得很详细了，授之于鱼不如授之以渔。
+最后给出一些项目的WebSocket聊天实现图：
+
+杨千嬅跟我是黄复贵的聊天：
+
+
+
+Hill跟我是黄复贵的聊天：
+
+
+
+我是黄复贵同时跟杨千嬅，Hill聊天：
+
+
+
+
+
+如有问题或补充，请大家在评论中尽管提，共同交流^~^。
+---------------------
+原文：https://blog.csdn.net/qq_33290787/article/details/52245041
