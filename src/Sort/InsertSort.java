@@ -5,7 +5,7 @@ package Sort;
  */
 public class InsertSort {
 
-    public static int[] InsertionSort(int [] arr){
+    public static int[] insertionSort(int [] arr){
         if (null == arr || 1 >= arr.length) {
             return null;
         }

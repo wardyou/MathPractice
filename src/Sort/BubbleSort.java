@@ -4,7 +4,7 @@ package Sort;
  * 冒泡排序
  */
 public class BubbleSort {
-    public static int[] BubbleSort(int[] arr) {
+    public static int[] bubbleSort(int[] arr) {
         if (null == arr) {
             return null;
         }
