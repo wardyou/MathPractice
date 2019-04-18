@@ -12,4 +12,5 @@ public class ArryQueue<E> {
     public ArryQueue(int size) {
         this.size = size;
     }
+
 }
